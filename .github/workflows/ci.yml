@@ -18,33 +18,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
       - run: dotnet restore StudyFlow.sln
       - run: dotnet build StudyFlow.sln --configuration Release --no-restore
-      - run: dotnet test StudyFlow.sln --configuration Release --no-build --logger trx --results-directory TestResults
-      - uses: actions/upload-artifact@v4
+      - run: dotnet test StudyFlow.sln --configuration Release --no-build --logger trx --collect:"XPlat Code Coverage" --settings tests/coverage.runsettings --results-directory TestResults
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results-${{ matrix.os }}
           path: TestResults
 
   browser-tests:
-    name: Browser scenarios
+    name: Browser scenarios (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    env:
+      STUDYFLOW_BROWSER: ${{ matrix.browser }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run test:e2e
