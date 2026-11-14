@@ -110,32 +110,83 @@ afterEach(async () => {
 after(async () => { await browser?.close(); });
 
 async function openSubjects() {
-  await page.getByRole('link', { name: 'Subjects', exact: true }).click();
-  await page.locator('#subject-name').waitFor();
+  if (new URL(page.url()).pathname !== '/subjects')
+    await page.getByRole('link', { name: 'Subjects', exact: true }).click();
+  await page.waitForURL('**/subjects');
+  await page.locator('#subject-name:enabled').waitFor();
 }
 
 async function addSubject(name = 'Programming') {
-  await openSubjects();
-  await page.locator('#subject-name').fill(name);
-  await page.getByRole('button', { name: 'Add subject', exact: true }).click();
-  await page.getByRole('heading', { name, exact: true }).waitFor();
+  try {
+    await openSubjects();
+    await fillAndCommit('#subject-name', name);
+    await page.getByRole('button', { name: 'Add subject', exact: true }).click();
+    await page.getByRole('heading', { name, exact: true }).waitFor();
+    await page.locator('#subject-name:enabled').waitFor();
+  } catch (error) {
+    await explainFailure(error, `Create subject ${name}`);
+  }
 }
 
 async function openTasks() {
-  await page.getByRole('link', { name: 'My tasks', exact: true }).click();
-  await page.getByRole('heading', { name: /^My tasks/ }).waitFor();
+  if (!['/', '/tasks'].includes(new URL(page.url()).pathname))
+    await page.getByRole('link', { name: 'My tasks', exact: true }).click();
+  await page.waitForURL(url => ['/', '/tasks'].includes(url.pathname));
+  await page.locator('.task-section').waitFor();
 }
 
 async function newTask(title, subject = 'Programming') {
-  await openTasks();
-  await page.getByRole('link', { name: 'New task', exact: true }).click();
-  await page.locator('#task-title').fill(title);
-  await page.locator('#task-subject').selectOption({ label: subject });
-  await page.locator('#task-minutes').fill('90');
-  await page.locator('#task-priority').selectOption('High');
-  await page.locator('#task-notes').fill('Prepare examples for the defence');
-  await page.getByRole('button', { name: 'Save task', exact: true }).click();
-  await page.getByRole('link', { name: title, exact: true }).waitFor();
+  try {
+    await openTasks();
+    await page.getByRole('link', { name: 'New task', exact: true }).click();
+    await page.waitForURL('**/tasks/new');
+    await fillAndCommit('#task-title', title);
+    await selectAndCommit('#task-subject', { label: subject });
+    await fillAndCommit('#task-minutes', '90');
+    await selectAndCommit('#task-priority', 'High');
+    await fillAndCommit('#task-notes', 'Prepare examples for the defence');
+    await page.getByRole('button', { name: 'Save task', exact: true }).click();
+    await page.getByRole('link', { name: title, exact: true }).waitFor();
+  } catch (error) {
+    await explainFailure(error, `Create task ${title}`);
+  }
+}
+
+async function fillAndCommit(selector, value, valid = true) {
+  const field = page.locator(selector);
+  await field.fill(value);
+  // InputText/InputNumber bind on change. Blurring and waiting for Blazor's
+  // validation render prevents a disappearing error from moving Save mid-click.
+  await field.press('Tab');
+  await page.locator(`${selector}.modified.${valid ? 'valid' : 'invalid'}`).waitFor();
+  assert.equal(await field.inputValue(), value);
+}
+
+async function selectAndCommit(selector, option) {
+  const field = page.locator(selector);
+  const previous = await field.inputValue();
+  const [selected] = await field.selectOption(option);
+  if (selected !== previous) await page.locator(`${selector}.modified.valid`).waitFor();
+  assert.equal(await field.inputValue(), selected);
+}
+
+async function explainFailure(error, operation) {
+  let state;
+  try {
+    state = await page.evaluate(() => ({
+      url: location.href,
+      fields: [...document.querySelectorAll('form input, form select, form textarea')].map(field => ({
+        id: field.id, value: field.value, class: field.className, disabled: field.matches(':disabled'),
+        validation: field.validationMessage
+      })),
+      notices: [...document.querySelectorAll('.validation-message, .notice')].map(item => item.textContent),
+      buttons: [...document.querySelectorAll('form button')].map(button => ({ text: button.textContent, disabled: button.matches(':disabled') })),
+      pageText: document.querySelector('main')?.innerText.slice(0, 4000)
+    }));
+  } catch (diagnosticError) {
+    state = { diagnosticError: diagnosticError.message };
+  }
+  throw new Error(`${operation} failed.\nBrowser state:\n${JSON.stringify(state, null, 2)}\nBrowser errors: ${pageErrors.join('; ')}\nRecent server log:\n${serverLog.slice(-6000)}`, { cause: error });
 }
 
 async function taskCount(expected) {
@@ -165,8 +216,8 @@ test('create, edit and complete a task; changes survive a page reload', { timeou
   await page.getByRole('button', { name: 'Complete Prepare the C# defence', exact: true }).click();
   await page.getByRole('button', { name: 'Reopen Prepare the C# defence', exact: true }).waitFor();
   await page.getByRole('link', { name: 'Edit Prepare the C# defence', exact: true }).click();
-  await page.locator('#task-title').fill('Prepare the final defence');
-  await page.locator('#task-minutes').fill('120');
+  await fillAndCommit('#task-title', 'Prepare the final defence');
+  await fillAndCommit('#task-minutes', '120');
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await page.getByRole('button', { name: 'Reopen Prepare the final defence', exact: true }).waitFor();
   await page.reload({ waitUntil: 'networkidle' });
@@ -188,9 +239,8 @@ test('invalid subject and task inputs show feedback without saving records', { t
   await page.getByRole('link', { name: 'New task', exact: true }).click();
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await page.getByText('Enter a task title.', { exact: true }).waitFor();
-  await page.locator('#task-title').fill('Invalid estimate');
-  await page.locator('#task-minutes').fill('10');
-  await page.locator('#task-minutes').press('Tab');
+  await fillAndCommit('#task-title', 'Invalid estimate');
+  await fillAndCommit('#task-minutes', '10', false);
   await page.getByText('Estimated time must be between 15 and 1440 minutes.', { exact: true }).waitFor();
   assert.ok(page.url().endsWith('/tasks/new'));
   await navigateWithConfirmation('My tasks', true);
@@ -270,17 +320,13 @@ test('unsaved edits require confirmation and pages fit a narrow screen', { timeo
   await addSubject();
   await openTasks();
   await page.getByRole('link', { name: 'New task', exact: true }).click();
-  await page.locator('#task-title').fill('Unsaved draft');
-  await page.locator('#task-title').press('Tab');
-  await page.locator('#task-title.modified').waitFor();
+  await fillAndCommit('#task-title', 'Unsaved draft');
   await navigateWithConfirmation('Subjects', false);
   assert.ok(page.url().endsWith('/tasks/new'));
   assert.equal(await page.locator('#task-title').inputValue(), 'Unsaved draft');
   await navigateWithConfirmation('Subjects', true);
   await page.locator('#subject-name').waitFor();
-  await page.locator('#subject-name').fill('Unsaved subject');
-  await page.locator('#subject-name').press('Tab');
-  await page.locator('#subject-name.modified').waitFor();
+  await fillAndCommit('#subject-name', 'Unsaved subject');
   await navigateWithConfirmation('My tasks', false);
   assert.ok(page.url().endsWith('/subjects'));
   await navigateWithConfirmation('My tasks', true);
