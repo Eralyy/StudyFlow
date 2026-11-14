@@ -1,0 +1,33 @@
+<article class="day-plan-card panel" data-plan-date="@Day.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">
+    <div class="day-plan-heading">
+        <div><h3>@Day.Date.ToString("dddd", CultureInfo.InvariantCulture)</h3><span>@Day.Date.ToString("d MMM yyyy", CultureInfo.InvariantCulture)</span></div>
+        <span class="day-budget">@Day.PlannedMinutes / @Day.AvailableMinutes min</span>
+    </div>
+    <ProgressMeter Value="Day.PlannedMinutes" Max="Day.AvailableMinutes" Label="@($"Planned minutes for {Day.Date:yyyy-MM-dd}")" />
+    @if (Day.Allocations.Count == 0)
+    {
+        <p class="day-plan-empty">@(Day.AvailableMinutes == 0 ? "Day off · no study time set." : "No work scheduled for this day.")</p>
+    }
+    else
+    {
+        <ul class="day-allocations">
+            @foreach (var allocation in Day.Allocations)
+            {
+                if (Tasks.TryGetValue(allocation.TaskId, out var task))
+                {
+                    var subject = Subjects.GetValueOrDefault(task.SubjectId);
+                    <li data-task-id="@task.Id">
+                        <div><a href="@($"/tasks/{task.Id}/edit")">@task.Title</a><p><span class="subject-dot" style="background:@subject?.Colour"></span>@subject?.Name · due @task.DueDate.ToString("d MMM", CultureInfo.InvariantCulture)</p></div>
+                        <strong>@allocation.Minutes min</strong>
+                    </li>
+                }
+            }
+        </ul>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired] public PlannedDay Day { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyDictionary<int, StudyTask> Tasks { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyDictionary<int, Subject> Subjects { get; set; } = default!;
+}

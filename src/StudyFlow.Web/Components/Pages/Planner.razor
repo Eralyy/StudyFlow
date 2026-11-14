@@ -1,0 +1,189 @@
+@page "/planner"
+@inject WorkspaceState Workspace
+@inject AvailabilityStore Availability
+@inject ILogger<Planner> Logger
+@inject IJSRuntime Js
+
+<PageTitle>Study planner · StudyFlow</PageTitle>
+@if (_context is not null)
+{
+    <NavigationLock ConfirmExternalNavigation="@(_context.IsModified() || _busy)" OnBeforeInternalNavigation="BeforeNavigation" />
+}
+<div class="page-heading"><div><div class="eyebrow">TIME FOR YOUR COURSEWORK</div><h1>Study planner<span class="heading-dot">.</span></h1><p>Fit your open tasks into the time you have.</p></div></div>
+<Notice Message="@_error" Kind="error" />
+<Notice Message="@_message" />
+@if (_loading)
+{
+    <div class="loading-panel" role="status">Loading your availability…</div>
+}
+else if (_context is null)
+{
+    <div class="empty-state compact"><h2>Your planner could not be loaded.</h2><button class="button secondary" @onclick="Load">Try again</button></div>
+}
+else
+{
+    <div class="planner-layout">
+        <section class="panel availability-panel" aria-label="Weekly availability">
+            <div class="eyebrow">YOUR WEEK</div><h2>Study time</h2>
+            <p>Minutes available each weekday. Use 0 for a day off; up to 720 minutes a day.</p>
+            <EditForm EditContext="_context" OnValidSubmit="SaveAvailability" FormName="availability" @key="_form">
+                <DataAnnotationsValidator />
+                <fieldset disabled="@_busy">
+                    @foreach (var day in _form.Days)
+                    {
+                        <div class="availability-field">
+                            <label for="@($"minutes-{day.Day}")">@day.Day</label>
+                            <div><InputNumber id="@($"minutes-{day.Day}")" @bind-Value="day.Minutes" min="0" max="720" step="1" /><span>min</span></div>
+                            <ValidationMessage For="() => day.Minutes" />
+                        </div>
+                    }
+                    <div class="availability-total">Weekly budget <strong>@_form.Days.Sum(d => (long)d.Minutes) min</strong></div>
+                    <button class="button primary" type="submit">@(_busy ? "Saving…" : "Save availability")</button>
+                    @if (_context.IsModified())
+                    {
+                        <p class="unsaved-hint" role="status">Unsaved availability changes.</p>
+                    }
+                </fieldset>
+            </EditForm>
+        </section>
+        <section class="plan-content" aria-label="Study plan">
+            <EditForm Model="_range" OnValidSubmit="Generate" FormName="plan-range">
+                <DataAnnotationsValidator />
+                <fieldset class="plan-controls" disabled="@_busy">
+                    <div class="form-field"><label for="plan-start">Start date</label><InputDate id="plan-start" @bind-Value="_range.StartDate" min="@Today.ToString("yyyy-MM-dd")" /><ValidationMessage For="() => _range.StartDate" /></div>
+                    <div class="form-field"><label for="plan-days">Plan length</label><InputSelect id="plan-days" @bind-Value="_range.Days"><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></InputSelect></div>
+                    <button type="submit" class="button secondary">@(_busy ? "Updating…" : "Generate plan")</button>
+                </fieldset>
+            </EditForm>
+            <p class="plan-explanation">Open tasks are placed by deadline, then priority. Work can be split across days, within your daily limits. This is a suggested plan, not a record of study time.</p>
+            @if (Workspace.Subjects.Count == 0)
+            {
+                <div class="empty-state compact"><h2>Add your first subject.</h2><p>Create a subject and a task so the planner has some coursework to arrange.</p><a class="button primary" href="/subjects">Add a subject</a></div>
+            }
+            else if (Workspace.Tasks.Count == 0)
+            {
+                <div class="empty-state compact"><h2>No tasks to plan yet.</h2><p>Add a task with a deadline and time estimate.</p><a class="button primary" href="/tasks/new">New task</a></div>
+            }
+            else if (Workspace.Tasks.All(t => t.IsCompleted))
+            {
+                <div class="empty-state compact"><span class="empty-illustration" aria-hidden="true">✓</span><h2>All tasks are complete.</h2><p>There is no open coursework to schedule.</p><a class="button secondary" href="/">View tasks</a></div>
+            }
+            else if (_plan is not null)
+            {
+                <div class="plan-summary" aria-label="Plan totals">
+                    <div><span>Planned</span><strong>@_plan.Days.Sum(d => d.PlannedMinutes) min</strong></div>
+                    <div><span>Available</span><strong>@_plan.Days.Sum(d => d.AvailableMinutes) min</strong></div>
+                    <div><span>Not scheduled</span><strong>@_plan.Unscheduled.Sum(t => (long)t.RemainingMinutes) min</strong></div>
+                </div>
+                @if (_plan.Unscheduled.Count > 0)
+                {
+                    <section class="unplanned-panel" aria-label="Tasks needing attention">
+                        <h2>Some work needs attention</h2>
+                        <p>Review the tasks below. Change a deadline or your available time, then generate the plan again.</p>
+                        <ul>
+                            @foreach (var item in _plan.Unscheduled)
+                            {
+                                if (_tasks.TryGetValue(item.TaskId, out var task))
+                                {
+                                    <li><a href="@($"/tasks/{task.Id}/edit")">@task.Title</a><span>@item.RemainingMinutes min · @ReasonText(item.Reason)</span></li>
+                                }
+                            }
+                        </ul>
+                    </section>
+                }
+                <div class="section-heading"><h2>@_plan.StartDate.ToString("d MMM", CultureInfo.InvariantCulture) – @_plan.Days.Last().Date.ToString("d MMM yyyy", CultureInfo.InvariantCulture)</h2><span class="plan-days-count">@_plan.Days.Count days</span></div>
+                <div class="day-plan-grid">
+                    @foreach (var day in _plan.Days)
+                    {
+                        <DayPlanCard @key="day.Date" Day="day" Tasks="_tasks" Subjects="_subjects" />
+                    }
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    private PlannerFormModel _form = new();
+    private readonly PlanRangeInput _range = new();
+    private EditContext? _context;
+    private IReadOnlyList<DailyAvailability> _savedAvailability = [];
+    private IReadOnlyDictionary<int, StudyTask> _tasks = new Dictionary<int, StudyTask>();
+    private IReadOnlyDictionary<int, Subject> _subjects = new Dictionary<int, Subject>();
+    private StudyPlan? _plan;
+    private bool _loading = true, _busy;
+    private string? _error, _message;
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true;
+        await Run(async () =>
+        {
+            _savedAvailability = await Availability.GetAsync();
+            _form = new();
+            _form.Load(_savedAvailability);
+            _context = new(_form);
+            await RefreshPlan();
+        });
+        _loading = false;
+    }
+
+    private async Task SaveAvailability() => await Run(async () =>
+    {
+        var result = await Availability.SaveAsync(_form.ToAvailability());
+        if (!result.IsSuccess) { _error = result.Error; return; }
+        _savedAvailability = _form.ToAvailability();
+        _context!.MarkAsUnmodified();
+        if (_range.StartDate is null || _range.StartDate < Today)
+        {
+            _plan = null;
+            _message = "Availability saved. Choose today or a future start date to generate a plan.";
+            return;
+        }
+        await RefreshPlan();
+        _message = "Availability saved. Your plan is updated.";
+    });
+
+    private async Task Generate()
+    {
+        _error = null; _message = null;
+        if (_context!.IsModified()) { _error = "Save your availability changes before generating a plan."; return; }
+        if (_range.StartDate is null || _range.StartDate < Today) { _error = "Choose today or a future start date."; return; }
+        await Run(async () => { await RefreshPlan(); _message = "Plan updated using your latest open tasks."; });
+    }
+
+    private async Task RefreshPlan()
+    {
+        await Workspace.RefreshAsync();
+        _tasks = Workspace.Tasks.ToDictionary(t => t.Id);
+        _subjects = Workspace.Subjects.ToDictionary(s => s.Id);
+        if (_range.StartDate is not null && _range.StartDate >= Today)
+            _plan = StudyPlanner.Create(Workspace.Tasks, _savedAvailability, _range.StartDate.Value, _range.Days);
+    }
+
+    private async Task BeforeNavigation(LocationChangingContext context)
+    {
+        if (_busy) { context.PreventNavigation(); return; }
+        if (_context!.IsModified() && !await Js.InvokeAsync<bool>("confirm", "Discard your unsaved availability changes?"))
+            context.PreventNavigation();
+    }
+
+    private async Task Run(Func<Task> action)
+    {
+        if (_busy) return;
+        _busy = true; _error = null; _message = null;
+        try { await action(); }
+        catch (Exception ex) { Logger.LogError(ex, "Planner operation failed"); _error = "We couldn't load or save your plan. Please try again."; }
+        finally { _busy = false; }
+    }
+
+    private static string ReasonText(UnscheduledReason reason) => reason switch
+    {
+        UnscheduledReason.Overdue => "Deadline is before the plan starts",
+        UnscheduledReason.BeyondHorizon => "More time is needed beyond this plan; choose a longer window",
+        _ => "Not enough available time before the deadline"
+    };
+}
