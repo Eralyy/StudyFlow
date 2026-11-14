@@ -96,3 +96,18 @@ One local workspace without accounts, repeating weekly availability, no timer, a
 
 **What should both teammates understand?**
 The full user flow, database relationships, pure and impure parts, scheduling order, warnings, and test evidence.
+
+## Connection to previous assignments
+
+| Assignment | What we use here |
+| --- | --- |
+| 3 | Classes and records describe tasks and subjects. OperationResult returns a value or an expected error. |
+| 4 | Lambdas supply filtering and sorting rules to LINQ. |
+| 5 | Regex validates subject colours; xUnit checks rules; calculations return new values. |
+| 6 | Async/await is used when reading and saving data. |
+| 7 | EF Core and SQLite store related tasks and subjects. Migrations update tables and transactions protect grouped writes. |
+| 8 | Blazor provides pages, reusable components, routing, state, and unsaved-change protection. LINQ prepares the displayed data. |
+
+The scheduling rule is the project-specific part: it combines deadlines, priorities, estimates, and daily capacity. Browser tests and GitHub Actions are additional checking tools.
+
+A short explanation for the defence: “We combined Blazor and LINQ from Assignment 8 with EF Core and SQLite from Assignment 7. Earlier work with records, lambdas, error handling, and async methods helped us build a study planner around those ideas.”
