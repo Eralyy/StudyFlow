@@ -272,6 +272,7 @@ test('unsaved edits require confirmation and pages fit a narrow screen', { timeo
   await page.getByRole('link', { name: 'New task', exact: true }).click();
   await page.locator('#task-title').fill('Unsaved draft');
   await page.locator('#task-title').press('Tab');
+  await page.locator('#task-title.modified').waitFor();
   await navigateWithConfirmation('Subjects', false);
   assert.ok(page.url().endsWith('/tasks/new'));
   assert.equal(await page.locator('#task-title').inputValue(), 'Unsaved draft');
@@ -279,6 +280,7 @@ test('unsaved edits require confirmation and pages fit a narrow screen', { timeo
   await page.locator('#subject-name').waitFor();
   await page.locator('#subject-name').fill('Unsaved subject');
   await page.locator('#subject-name').press('Tab');
+  await page.locator('#subject-name.modified').waitFor();
   await navigateWithConfirmation('My tasks', false);
   assert.ok(page.url().endsWith('/subjects'));
   await navigateWithConfirmation('My tasks', true);
