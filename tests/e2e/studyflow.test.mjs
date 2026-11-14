@@ -11,7 +11,10 @@ import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const require = createRequire(import.meta.url);
-const { chromium } = require(process.env.STUDYFLOW_PLAYWRIGHT_MODULE || 'playwright');
+const playwright = require(process.env.STUDYFLOW_PLAYWRIGHT_MODULE || 'playwright');
+const browserName = process.env.STUDYFLOW_BROWSER || 'chromium';
+if (!['chromium', 'firefox', 'webkit'].includes(browserName))
+  throw new Error('STUDYFLOW_BROWSER must be chromium, firefox, or webkit.');
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const port = Number(process.env.STUDYFLOW_E2E_PORT || 5191);
 const address = `http://127.0.0.1:${port}`;
@@ -29,12 +32,13 @@ async function portIsListening() {
 
 before(async () => {
   const options = { headless: true };
-  if (process.env.STUDYFLOW_BROWSER_CHANNEL) options.channel = process.env.STUDYFLOW_BROWSER_CHANNEL;
+  if (browserName === 'chromium' && process.env.STUDYFLOW_BROWSER_CHANNEL)
+    options.channel = process.env.STUDYFLOW_BROWSER_CHANNEL;
   try {
-    browser = await chromium.launch(options);
+    browser = await playwright[browserName].launch(options);
   } catch (error) {
-    if (process.platform !== 'win32' || options.channel || !error.message.includes("Executable doesn't exist")) throw error;
-    browser = await chromium.launch({ headless: true, channel: 'chrome' });
+    if (browserName !== 'chromium' || process.platform !== 'win32' || options.channel || !error.message.includes("Executable doesn't exist")) throw error;
+    browser = await playwright.chromium.launch({ headless: true, channel: 'chrome' });
   }
 });
 
@@ -106,32 +110,83 @@ afterEach(async () => {
 after(async () => { await browser?.close(); });
 
 async function openSubjects() {
-  await page.getByRole('link', { name: 'Subjects', exact: true }).click();
-  await page.locator('#subject-name').waitFor();
+  if (new URL(page.url()).pathname !== '/subjects')
+    await page.getByRole('link', { name: 'Subjects', exact: true }).click();
+  await page.waitForURL('**/subjects');
+  await page.locator('#subject-name:enabled').waitFor();
 }
 
 async function addSubject(name = 'Programming') {
-  await openSubjects();
-  await page.locator('#subject-name').fill(name);
-  await page.getByRole('button', { name: 'Add subject', exact: true }).click();
-  await page.getByRole('heading', { name, exact: true }).waitFor();
+  try {
+    await openSubjects();
+    await fillAndCommit('#subject-name', name);
+    await page.getByRole('button', { name: 'Add subject', exact: true }).click();
+    await page.getByRole('heading', { name, exact: true }).waitFor();
+    await page.locator('#subject-name:enabled').waitFor();
+  } catch (error) {
+    await explainFailure(error, `Create subject ${name}`);
+  }
 }
 
 async function openTasks() {
-  await page.getByRole('link', { name: 'My tasks', exact: true }).click();
-  await page.getByRole('heading', { name: /^My tasks/ }).waitFor();
+  if (!['/', '/tasks'].includes(new URL(page.url()).pathname))
+    await page.getByRole('link', { name: 'My tasks', exact: true }).click();
+  await page.waitForURL(url => ['/', '/tasks'].includes(url.pathname));
+  await page.locator('.task-section').waitFor();
 }
 
 async function newTask(title, subject = 'Programming') {
-  await openTasks();
-  await page.getByRole('link', { name: 'New task', exact: true }).click();
-  await page.locator('#task-title').fill(title);
-  await page.locator('#task-subject').selectOption({ label: subject });
-  await page.locator('#task-minutes').fill('90');
-  await page.locator('#task-priority').selectOption('High');
-  await page.locator('#task-notes').fill('Prepare examples for the defence');
-  await page.getByRole('button', { name: 'Save task', exact: true }).click();
-  await page.getByRole('link', { name: title, exact: true }).waitFor();
+  try {
+    await openTasks();
+    await page.getByRole('link', { name: 'New task', exact: true }).click();
+    await page.waitForURL('**/tasks/new');
+    await fillAndCommit('#task-title', title);
+    await selectAndCommit('#task-subject', { label: subject });
+    await fillAndCommit('#task-minutes', '90');
+    await selectAndCommit('#task-priority', 'High');
+    await fillAndCommit('#task-notes', 'Prepare examples for the defence');
+    await page.getByRole('button', { name: 'Save task', exact: true }).click();
+    await page.getByRole('link', { name: title, exact: true }).waitFor();
+  } catch (error) {
+    await explainFailure(error, `Create task ${title}`);
+  }
+}
+
+async function fillAndCommit(selector, value, valid = true) {
+  const field = page.locator(selector);
+  await field.fill(value);
+  // InputText/InputNumber bind on change. Blurring and waiting for Blazor's
+  // validation render prevents a disappearing error from moving Save mid-click.
+  await field.press('Tab');
+  await page.locator(`${selector}.modified.${valid ? 'valid' : 'invalid'}`).waitFor();
+  assert.equal(await field.inputValue(), value);
+}
+
+async function selectAndCommit(selector, option) {
+  const field = page.locator(selector);
+  const previous = await field.inputValue();
+  const [selected] = await field.selectOption(option);
+  if (selected !== previous) await page.locator(`${selector}.modified.valid`).waitFor();
+  assert.equal(await field.inputValue(), selected);
+}
+
+async function explainFailure(error, operation) {
+  let state;
+  try {
+    state = await page.evaluate(() => ({
+      url: location.href,
+      fields: [...document.querySelectorAll('form input, form select, form textarea')].map(field => ({
+        id: field.id, value: field.value, class: field.className, disabled: field.matches(':disabled'),
+        validation: field.validationMessage
+      })),
+      notices: [...document.querySelectorAll('.validation-message, .notice')].map(item => item.textContent),
+      buttons: [...document.querySelectorAll('form button')].map(button => ({ text: button.textContent, disabled: button.matches(':disabled') })),
+      pageText: document.querySelector('main')?.innerText.slice(0, 4000)
+    }));
+  } catch (diagnosticError) {
+    state = { diagnosticError: diagnosticError.message };
+  }
+  throw new Error(`${operation} failed.\nBrowser state:\n${JSON.stringify(state, null, 2)}\nBrowser errors: ${pageErrors.join('; ')}\nRecent server log:\n${serverLog.slice(-6000)}`, { cause: error });
 }
 
 async function taskCount(expected) {
@@ -161,8 +216,8 @@ test('create, edit and complete a task; changes survive a page reload', { timeou
   await page.getByRole('button', { name: 'Complete Prepare the C# defence', exact: true }).click();
   await page.getByRole('button', { name: 'Reopen Prepare the C# defence', exact: true }).waitFor();
   await page.getByRole('link', { name: 'Edit Prepare the C# defence', exact: true }).click();
-  await page.locator('#task-title').fill('Prepare the final defence');
-  await page.locator('#task-minutes').fill('120');
+  await fillAndCommit('#task-title', 'Prepare the final defence');
+  await fillAndCommit('#task-minutes', '120');
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await page.getByRole('button', { name: 'Reopen Prepare the final defence', exact: true }).waitFor();
   await page.reload({ waitUntil: 'networkidle' });
@@ -184,9 +239,8 @@ test('invalid subject and task inputs show feedback without saving records', { t
   await page.getByRole('link', { name: 'New task', exact: true }).click();
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await page.getByText('Enter a task title.', { exact: true }).waitFor();
-  await page.locator('#task-title').fill('Invalid estimate');
-  await page.locator('#task-minutes').fill('10');
-  await page.locator('#task-minutes').press('Tab');
+  await fillAndCommit('#task-title', 'Invalid estimate');
+  await fillAndCommit('#task-minutes', '10', false);
   await page.getByText('Estimated time must be between 15 and 1440 minutes.', { exact: true }).waitFor();
   assert.ok(page.url().endsWith('/tasks/new'));
   await navigateWithConfirmation('My tasks', true);
@@ -266,15 +320,13 @@ test('unsaved edits require confirmation and pages fit a narrow screen', { timeo
   await addSubject();
   await openTasks();
   await page.getByRole('link', { name: 'New task', exact: true }).click();
-  await page.locator('#task-title').fill('Unsaved draft');
-  await page.locator('#task-title').press('Tab');
+  await fillAndCommit('#task-title', 'Unsaved draft');
   await navigateWithConfirmation('Subjects', false);
   assert.ok(page.url().endsWith('/tasks/new'));
   assert.equal(await page.locator('#task-title').inputValue(), 'Unsaved draft');
   await navigateWithConfirmation('Subjects', true);
   await page.locator('#subject-name').waitFor();
-  await page.locator('#subject-name').fill('Unsaved subject');
-  await page.locator('#subject-name').press('Tab');
+  await fillAndCommit('#subject-name', 'Unsaved subject');
   await navigateWithConfirmation('My tasks', false);
   assert.ok(page.url().endsWith('/subjects'));
   await navigateWithConfirmation('My tasks', true);
@@ -304,8 +356,108 @@ test('unsaved edits require confirmation and pages fit a narrow screen', { timeo
   await openTasks();
   await addSamples();
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ['/', '/subjects', '/tasks/new']) {
+  for (const path of ['/', '/subjects', '/tasks/new', '/planner', '/progress']) {
     await page.goto(path, { waitUntil: 'networkidle' });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${path} overflows horizontally`);
   }
+});
+
+async function openPlanner() {
+  await page.getByRole('link', { name: 'Planner', exact: true }).click();
+  await page.locator('#minutes-Monday').waitFor();
+}
+
+async function setDailyBudget(minutes) {
+  for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
+    await page.locator(`#minutes-${day}`).fill(String(minutes));
+  await page.locator('#minutes-Sunday').press('Tab');
+  await page.locator('.unsaved-hint').waitFor();
+  await page.getByRole('button', { name: 'Save availability', exact: true }).click();
+  await page.locator('.unsaved-hint').waitFor({ state: 'hidden' });
+  await page.getByText('Availability saved. Your plan is updated.', { exact: true }).waitFor();
+}
+
+test('availability is validated and persisted; plans respect budgets and show unscheduled work', { timeout: 60000 }, async () => {
+  await addSamples();
+  await openPlanner();
+  await page.locator('#minutes-Monday').fill('721');
+  await page.locator('#minutes-Monday').press('Tab');
+  await page.getByText('Use between 0 and 720 minutes.', { exact: true }).waitFor();
+  await setDailyBudget(0);
+  assert.equal(await page.locator('.day-plan-card').count(), 14);
+  assert.equal(await page.locator('.day-allocations li').count(), 0);
+  assert.equal(await page.locator('.unplanned-panel li').count(), 4);
+  assert.match(await page.locator('.unplanned-panel').innerText(), /Deadline is before the plan starts/);
+  assert.match(await page.locator('.unplanned-panel').innerText(), /Not enough available time/);
+  await page.reload({ waitUntil: 'networkidle' });
+  assert.equal(await page.locator('#minutes-Monday').inputValue(), '0');
+  assert.equal(await page.locator('#minutes-Sunday').inputValue(), '0');
+  await setDailyBudget(60);
+  assert.equal(await page.locator('.unplanned-panel li').count(), 1);
+  assert.match(await page.locator('.unplanned-panel').innerText(), /Read the chapter on pure functions/);
+  assert.equal(await page.locator('.day-allocations a').filter({ hasText: 'Sketch the page layout' }).count(), 0);
+  const budgets = await page.locator('.day-plan-card progress').evaluateAll(bars => bars.map(bar => ({ value: bar.value, max: bar.max })));
+  assert.equal(budgets.reduce((total, bar) => total + bar.value, 0), 255);
+  assert.ok(budgets.every(bar => bar.value <= 60 && bar.value <= bar.max));
+  const linqDays = await page.locator('.day-plan-card').filter({ has: page.getByRole('link', { name: 'Complete the LINQ practice', exact: true }) }).count();
+  assert.equal(linqDays, 2, 'The 90-minute task should span two 60-minute days');
+  await page.locator('#plan-days').selectOption('7');
+  await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.day-plan-card').length === 7);
+  await page.locator('#plan-days').selectOption('30');
+  await page.getByRole('button', { name: 'Generate plan', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.day-plan-card').length === 30);
+});
+
+test('progress reflects completed tasks, subject totals and remaining estimates', { timeout: 60000 }, async () => {
+  await addSamples();
+  await page.getByRole('link', { name: 'Progress', exact: true }).click();
+  await page.locator('[data-stat="open"]').waitFor();
+  assert.equal(await page.locator('[data-stat="open"]').innerText(), '4');
+  assert.equal(await page.locator('[data-stat="completed"]').innerText(), '1');
+  assert.equal(await page.locator('[data-stat="overdue"]').innerText(), '1');
+  assert.equal(await page.locator('.completion-percent').innerText(), '20%');
+  assert.match(await page.locator('.estimate-summary').innerText(), /5h 15m/);
+  assert.equal(await page.locator('.subject-progress-card').count(), 3);
+  assert.equal(await page.locator('.deadline-list li').count(), 3);
+  await openTasks();
+  await page.getByRole('button', { name: 'Complete Complete the LINQ practice', exact: true }).click();
+  await page.getByRole('button', { name: 'Reopen Complete the LINQ practice', exact: true }).waitFor();
+  await page.getByRole('link', { name: 'Progress', exact: true }).click();
+  await page.getByText('40%', { exact: true }).waitFor();
+  assert.equal(await page.locator('[data-stat="completed"]').innerText(), '2');
+  assert.match(await page.locator('.estimate-summary').innerText(), /3h 45m/);
+  const programming = page.locator('.subject-progress-card').filter({ hasText: 'Functional Programming' });
+  assert.match(await programming.innerText(), /50%/);
+  await page.reload({ waitUntil: 'networkidle' });
+  assert.equal(await page.locator('.completion-percent').innerText(), '40%');
+  await openPlanner();
+  assert.equal(await page.locator('.day-allocations a').filter({ hasText: 'Complete the LINQ practice' }).count(), 0);
+});
+
+test('planner empty states and unsaved availability are clear', { timeout: 60000 }, async () => {
+  await openPlanner();
+  await page.getByRole('heading', { name: 'Add your first subject.', exact: true }).waitFor();
+  const initialMonday = await page.locator('#minutes-Monday').inputValue();
+  await page.locator('#minutes-Monday').fill('135');
+  await page.locator('#minutes-Monday').press('Tab');
+  await page.locator('.unsaved-hint').waitFor();
+  await navigateWithConfirmation('Progress', false);
+  assert.ok(page.url().endsWith('/planner'));
+  assert.equal(await page.locator('#minutes-Monday').inputValue(), '135');
+  await navigateWithConfirmation('Progress', true);
+  await page.getByRole('heading', { name: 'No coursework to measure yet.', exact: true }).waitFor();
+  await openPlanner();
+  assert.equal(await page.locator('#minutes-Monday').inputValue(), initialMonday);
+  await addSubject();
+  await openPlanner();
+  await page.getByRole('heading', { name: 'No tasks to plan yet.', exact: true }).waitFor();
+  await newTask('Finish the practice');
+  await page.getByRole('button', { name: 'Complete Finish the practice', exact: true }).click();
+  await page.getByRole('button', { name: 'Reopen Finish the practice', exact: true }).waitFor();
+  await openPlanner();
+  await page.getByRole('heading', { name: 'All tasks are complete.', exact: true }).waitFor();
+  await page.getByRole('link', { name: 'Progress', exact: true }).click();
+  await page.getByText('100%', { exact: true }).first().waitFor();
+  assert.equal(await page.locator('[data-stat="open"]').innerText(), '0');
 });

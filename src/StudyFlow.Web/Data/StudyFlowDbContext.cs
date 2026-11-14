@@ -6,9 +6,19 @@ public sealed class StudyFlowDbContext(DbContextOptions<StudyFlowDbContext> opti
 {
     internal DbSet<SubjectEntity> Subjects => Set<SubjectEntity>();
     internal DbSet<StudyTaskEntity> Tasks => Set<StudyTaskEntity>();
+    internal DbSet<AvailabilityEntity> Availability => Set<AvailabilityEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        var availability = modelBuilder.Entity<AvailabilityEntity>();
+        availability.ToTable("Availability", table =>
+        {
+            table.HasCheckConstraint("CK_Availability_Day", "Day BETWEEN 0 AND 6");
+            table.HasCheckConstraint("CK_Availability_Minutes", "Minutes BETWEEN 0 AND 720");
+        });
+        availability.HasKey(item => item.Day);
+        availability.Property(item => item.Day).HasConversion<int>().ValueGeneratedNever();
+
         var subjects = modelBuilder.Entity<SubjectEntity>();
         subjects.ToTable("Subjects");
         subjects.HasKey(subject => subject.Id);

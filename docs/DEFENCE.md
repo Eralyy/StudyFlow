@@ -1,64 +1,113 @@
-# Explaining the task-management part
+# Explaining StudyFlow
 
-## A short introduction
+## Opening
 
-“StudyFlow helps students organise assignments and deadlines. This part lets the user manage subjects and tasks, save them in a database, find relevant work, and mark it as complete. The next part will use these tasks to generate a study plan.”
+“StudyFlow helps students manage coursework and decide when to study. A user adds tasks with deadlines and estimates, enters available time for each weekday, and gets a daily plan. If work does not fit, the app shows what is left instead of hiding it.”
+
+## Presentation timing
+
+Aim for 16–18 minutes including the demonstration, leaving time for questions. The required defence is 15–20 minutes and either teammate may be asked about any part.
+
+| Slides | Speaker | Approximate time |
+| --- | --- | --- |
+| 1–4: purpose, method, technology | Yerali | 4 minutes |
+| 5–6: architecture and task flow | Yerali | 3 minutes |
+| 7–9: planner and progress | Aknur | 5 minutes |
+| 10: verification | Aknur | 1 minute |
+| 11: live demonstration | Both | 3 minutes |
+| 12: roles and next work | Both | 1 minute |
+
+Use the short speaker notes inside the PowerPoint. Explain the idea in your own words rather than reading every line.
 
 ## What each part does
 
-| Part | Simple explanation |
+| Part | A simple explanation |
 | --- | --- |
-| `StudyFlow.Web` | Runs the website. Blazor displays the pages and handles clicks and form submissions. |
-| Tasks and Subjects pages | Display the lists and connect user actions to the application services. |
-| `TaskEditor`, `TaskCard`, and `Notice` | Reusable pieces for task forms, task summaries, and feedback messages. |
-| `WorkspaceState` | Keeps the loaded subjects and tasks together for the current browser session and refreshes them after changes. |
-| `StudyFlow.Core` | Defines the shared data and pure rules for validation, filtering, and sorting. It does not access the database. |
-| `TaskStore` | Coordinates saving and loading. It checks the input and applies rules before changing stored data. |
-| `StudyFlowDbContext` | Connects the C# database models to SQLite through Entity Framework Core. |
-| SQLite | Keeps subjects and tasks after the application closes. |
-| `StudyFlow.Tests` | Checks the pure rules and database behaviour automatically. |
+| Blazor pages | Display tasks, subjects, plans, and progress, and respond to clicks. |
+| `TaskEditor` | Reuses the same form for creating and editing a task. |
+| `TaskCard` and `DayPlanCard` | Show one task or one day's planned work. |
+| `ProgressMeter` | Displays a labelled completion bar. |
+| `WorkspaceState` | Keeps loaded tasks, subjects, and filters for the current browser circuit. |
+| `TaskStore` | Validates and saves subjects and tasks. |
+| `AvailabilityStore` | Loads and saves the seven weekday time limits. |
+| `StudyFlowDbContext` | Maps C# entities to SQLite tables using EF Core. |
+| `StudyFlow.Core` | Holds immutable records and calculations without database access. |
+| `StudyPlanner` | Allocates unfinished work to days before deadlines. |
+| `TaskStatistics` | Calculates counts, completion percentages, and estimated minutes. |
 
-The normal flow is: **form → validation → TaskStore → database → refreshed page**.
+## The data flow
 
-## A simple demonstration
+“A form collects input. The service validates it and opens a database context. EF Core saves the change in SQLite. The page refreshes its data. The planner receives those task records and calculates a new result without saving or modifying them.”
 
-1. Create a subject called “Programming”.
-2. Add “Prepare final presentation”, select the subject, and enter its deadline, priority, and estimated duration.
-3. Edit the title or duration. Reload the page to demonstrate that the change was saved.
-4. Search for the task and filter the list by subject or completion status.
-5. Mark it as complete and show the completed filter. Reopen it if necessary.
-6. Try to delete its subject. The application explains that the subject still has tasks.
+## The planner in easy terms
 
-## Questions you should be ready for
+“Imagine Monday has 60 free minutes, Tuesday has 60, and Wednesday has 30. A task needing 60 minutes is placed on Monday. Another task needing 90 minutes uses Tuesday and Wednesday. If both must finish by Wednesday, there is no time left for a third task. The app reports its remaining minutes.”
+
+The order is deadline first, then higher priority, then task ID. Completed tasks are skipped. Tasks due before the chosen plan start cannot be scheduled. Allocations respect the daily limit and deadline, including the deadline day itself.
+
+## Demonstration
+
+1. Create a subject named “Defence demo”. Add a task with a future deadline and a 60 minute estimate.
+2. Edit its title, save, and reload to show persistence.
+3. Open the planner. Set a small amount of availability and save it.
+4. Generate a plan and point to a task's allocation.
+5. Make a task exceed the capacity before its deadline. Regenerate and explain the warning.
+6. Complete the task and open Progress. Explain the change in counts.
+
+Do not reset the normal database for the demonstration. Remove the demo task and subject afterwards if needed.
+
+## Questions to practise
 
 **Where is functional programming used?**
-Validation and task filtering are pure operations. They return a result without saving data or modifying the original tasks. The query also receives today's date explicitly, which makes overdue behaviour predictable in tests.
+Validation, queries, planning, and statistics are pure calculations. They return results without saving data or changing the supplied records.
 
-**Is the whole application pure?**
-No. Saving to a database is a side effect. We keep that work in `TaskStore`, separate from the pure rules.
+**Why is the planner predictable?**
+It receives the start date explicitly and uses a fixed order. The same tasks, availability, start date, and window produce the same plan.
 
-**Why are the shared models records?**
-They describe values. Their properties are fixed after creation, so another part can use a task without accidentally changing that snapshot.
+**Is the whole program pure?**
+No. Database writes are side effects. They stay in the storage services, separate from pure rules.
 
-**How do two tasks belong to the same subject?**
-Each task stores a `SubjectId`. The database uses that ID to connect it to a subject.
+**Why records?**
+They represent snapshots with properties fixed after creation. A calculation cannot accidentally edit a stored task through that snapshot.
 
-**Why cannot I delete a subject that has tasks?**
-That would leave tasks without a valid subject. Move or delete those tasks first, then remove the subject.
+**Why can a task appear on several days?**
+Its estimate may exceed one day's free time. The planner uses part on one day and continues on the next eligible day.
 
-**What counts as overdue?**
-An unfinished task whose deadline is before today. A task due today is not overdue, and a completed task is excluded.
+**Does it always find the best possible schedule?**
+It follows a deadline-first rule with deterministic tie-breaks. It does not claim to maximise grades or task value. Users can change priorities, estimates, and availability.
 
-**Why use a new database context for each operation?**
-A Blazor page can stay open for a long time. A short-lived context keeps each database operation separate and is disposed afterwards.
+**What does progress measure?**
+Whole-task completion and estimated minutes. It does not measure actual study time or partly completed sessions.
 
-**What does a database migration do?**
-It describes changes to the database structure. The application applies its migrations at startup, so the required tables exist before the user starts working.
+**What is saved?**
+Subjects, tasks, and weekly availability. The plan is recalculated from them rather than saved as appointments.
 
-**What happens with invalid input?**
-The form shows feedback, and the storage service validates again. Expected failures return a useful message instead of silently changing the database.
+**Why SQLite?**
+It stores data in one local file without a separate server, making the project easy to run during the defence.
 
-**What does this part not do yet?**
-Automatic scheduling, available-time settings, overload warnings, and progress statistics belong to the next delivery. The current app is a local shared workspace, without application user accounts.
+**What protects the data?**
+Validation, unique subject names, foreign keys, protected subject deletion, and transactions for multi-row changes. Tests use temporary databases.
 
-Both teammates should understand this overall flow. The project requirements allow the examiner to ask either person about any part.
+**Why a new database context per operation?**
+A Blazor circuit can stay open for a long time. A short-lived context keeps operations separate and is disposed afterwards.
+
+**What are the limits?**
+One local workspace without accounts, repeating weekly availability, no timer, and no dated availability exceptions.
+
+**What should both teammates understand?**
+The full user flow, database relationships, pure and impure parts, scheduling order, warnings, and test evidence.
+
+## Connection to previous assignments
+
+| Assignment | What we use here |
+| --- | --- |
+| 3 | Classes and records describe tasks and subjects. OperationResult returns a value or an expected error. |
+| 4 | Lambdas supply filtering and sorting rules to LINQ. |
+| 5 | Regex validates subject colours; xUnit checks rules; calculations return new values. |
+| 6 | Async/await is used when reading and saving data. |
+| 7 | EF Core and SQLite store related tasks and subjects. Migrations update tables and transactions protect grouped writes. |
+| 8 | Blazor provides pages, reusable components, routing, state, and unsaved-change protection. LINQ prepares the displayed data. |
+
+The scheduling rule is the project-specific part: it combines deadlines, priorities, estimates, and daily capacity. Browser tests and GitHub Actions are additional checking tools.
+
+A short explanation for the defence: “We combined Blazor and LINQ from Assignment 8 with EF Core and SQLite from Assignment 7. Earlier work with records, lambdas, error handling, and async methods helped us build a study planner around those ideas.”

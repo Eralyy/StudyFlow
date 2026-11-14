@@ -11,6 +11,7 @@ string connectionString = builder.Configuration.GetConnectionString("StudyFlow")
     ?? $"Data Source={Path.Combine(dataDirectory, "studyflow.db")}";
 builder.Services.AddDbContextFactory<StudyFlowDbContext>(options => options.UseSqlite(connectionString));
 builder.Services.AddScoped<TaskStore>();
+builder.Services.AddScoped<AvailabilityStore>();
 builder.Services.AddScoped<WorkspaceState>();
 
 var app = builder.Build();

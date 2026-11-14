@@ -1,0 +1,97 @@
+@page "/progress"
+@inject WorkspaceState Workspace
+@inject ILogger<Progress> Logger
+
+<PageTitle>Progress · StudyFlow</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">YOUR COURSEWORK AT A GLANCE</div><h1>Progress<span class="heading-dot">.</span></h1><p>See what is finished and what still needs time.</p></div><button class="button secondary" disabled="@_loading" @onclick="Refresh">Refresh</button></div>
+<Notice Message="@_error" Kind="error" />
+@if (_loading)
+{
+    <div class="loading-panel" role="status">Loading your progress…</div>
+}
+else if (_summary is not null)
+{
+    @if (_summary.TotalTasks == 0)
+    {
+        <div class="empty-state"><h2>No coursework to measure yet.</h2><p>Add a subject and a task. Mark a task complete when you finish it.</p><a class="button primary" href="@(Workspace.Subjects.Count == 0 ? "/subjects" : "/tasks/new")">@(Workspace.Subjects.Count == 0 ? "Add a subject" : "New task")</a></div>
+    }
+    else
+    {
+        <section class="summary-strip" aria-label="Progress overview">
+            <div class="summary-item"><span class="summary-icon green" aria-hidden="true">▤</span><div><span>Open tasks</span><strong data-stat="open">@_summary.OpenTasks</strong></div></div>
+            <div class="summary-item"><span class="summary-icon lilac" aria-hidden="true">✓</span><div><span>Completed</span><strong data-stat="completed">@_summary.CompletedTasks</strong></div></div>
+            <div class="summary-item"><span class="summary-icon orange" aria-hidden="true">◷</span><div><span>Overdue</span><strong data-stat="overdue">@_summary.OverdueTasks</strong></div></div>
+        </section>
+        <section class="panel completion-panel" aria-label="Overall completion">
+            <div><h2>Overall completion</h2><p>@_summary.CompletedTasks of @_summary.TotalTasks tasks completed</p></div><strong class="completion-percent">@_summary.CompletionPercentage.ToString("0.#", CultureInfo.InvariantCulture)%</strong>
+            <ProgressMeter Value="_summary.CompletedTasks" Max="_summary.TotalTasks" Label="Overall task completion" />
+            <div class="estimate-summary"><span><strong>@Duration(_summary.RemainingEstimatedMinutes)</strong> estimated work remaining</span><span>@Duration(_summary.CompletedEstimatedMinutes) estimated work completed</span></div>
+            <p class="progress-note">Time totals use your task estimates. They are not hours recorded by a timer.</p>
+        </section>
+        <div class="progress-layout">
+            <section aria-label="Progress by subject">
+                <div class="section-heading"><h2>By subject <span>@_summary.Subjects.Count</span></h2></div>
+                <div class="subject-progress-list">
+                    @foreach (var subject in _summary.Subjects)
+                    {
+                        <article class="panel subject-progress-card" data-subject-id="@subject.SubjectId">
+                            <div class="subject-progress-heading"><h3><span class="subject-dot" style="background:@subject.Colour"></span>@subject.SubjectName</h3><strong>@subject.CompletionPercentage.ToString("0.#", CultureInfo.InvariantCulture)%</strong></div>
+                            <ProgressMeter Value="subject.CompletedTasks" Max="subject.TotalTasks" Label="@($"{subject.SubjectName} completion")" />
+                            <div class="subject-progress-details"><span>@subject.CompletedTasks / @subject.TotalTasks completed</span><span>@Duration(subject.RemainingEstimatedMinutes) remaining</span></div>
+                            @if (subject.OverdueTasks > 0) { <p class="progress-overdue">@subject.OverdueTasks overdue task@(subject.OverdueTasks == 1 ? "" : "s")</p> }
+                            @if (subject.TotalTasks == 0) { <p class="progress-note">No tasks for this subject yet.</p> }
+                        </article>
+                    }
+                </div>
+            </section>
+            <section class="panel deadlines-panel" aria-label="Upcoming deadlines">
+                <div class="section-heading"><h2>Next deadlines</h2></div>
+                @if (_summary.OpenTasks == 0)
+                {
+                    <p class="deadline-empty">All tasks are complete.</p>
+                }
+                else if (UpcomingTasks.Count == 0)
+                {
+                    <p class="deadline-empty">No upcoming deadlines. Your open tasks are overdue; review them in My tasks.</p>
+                }
+                else
+                {
+                    <ul class="deadline-list">
+                        @foreach (var task in UpcomingTasks)
+                        {
+                            <li><span class="deadline-date">@task.DueDate.ToString("d MMM", CultureInfo.InvariantCulture)</span><div><a href="@($"/tasks/{task.Id}/edit")">@task.Title</a><p>@Workspace.Subjects.FirstOrDefault(s => s.Id == task.SubjectId)?.Name · @Duration(task.EstimatedMinutes)</p></div><span class="priority @task.Priority.ToString().ToLowerInvariant()">@task.Priority</span></li>
+                        }
+                    </ul>
+                }
+                <a class="button secondary" href="/planner">Open study planner</a>
+            </section>
+        </div>
+    }
+}
+
+@code {
+    private TaskStatisticsSummary? _summary;
+    private bool _loading = true;
+    private string? _error;
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+    private IReadOnlyList<StudyTask> UpcomingTasks => Workspace.Tasks
+        .Where(t => !t.IsCompleted && t.DueDate >= Today)
+        .OrderBy(t => t.DueDate).ThenByDescending(t => t.Priority).ThenBy(t => t.Id).Take(5).ToArray();
+
+    protected override async Task OnInitializedAsync() => await Refresh();
+
+    private async Task Refresh()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            await Workspace.RefreshAsync();
+            _summary = TaskStatistics.Calculate(Workspace.Tasks, Workspace.Subjects, Today);
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Progress could not be loaded"); _error = "We couldn't load your progress. Please try again."; }
+        finally { _loading = false; }
+    }
+
+    private static string Duration(long minutes) => minutes < 60 ? $"{minutes} min"
+        : minutes % 60 == 0 ? $"{minutes / 60}h" : $"{minutes / 60}h {minutes % 60}m";
+}

@@ -5,7 +5,7 @@
 @inject ILogger<Tasks> Logger
 
 <PageTitle>My tasks · StudyFlow</PageTitle>
-<div class="page-heading"><div><div class="eyebrow">MAKE SPACE FOR WHAT MATTERS</div><h1>My tasks<span class="heading-dot">.</span></h1><p>A clear view of your coursework, one deadline at a time.</p></div><a href="/tasks/new" class="button primary"><span aria-hidden="true">+</span> New task</a></div>
+<div class="page-heading"><div><div class="eyebrow">COURSEWORK</div><h1>My tasks<span class="heading-dot">.</span></h1><p>Your assignments, deadlines and progress.</p></div><a href="/tasks/new" class="button primary"><span aria-hidden="true">+</span> New task</a></div>
 <Notice Message="@_error" Kind="error" /><Notice Message="@_message" />
 @if (_loading)
 {
@@ -47,7 +47,11 @@ else
         }
         else
         {
-            <div class="task-list">@foreach (var task in visibleTasks) { <TaskCard @key="task.Id" Item="task" Subject="Workspace.Subjects.FirstOrDefault(s => s.Id == task.SubjectId)" Busy="_busy" OnToggle="ToggleTask" OnDelete="SelectDelete" /> }</div>
+            <div class="task-list">@foreach (var task in visibleTasks.Take(_shown)) { <TaskCard @key="task.Id" Item="task" Subject="Workspace.Subjects.FirstOrDefault(s => s.Id == task.SubjectId)" Busy="_busy" OnToggle="ToggleTask" OnDelete="SelectDelete" /> }</div>
+            @if (visibleTasks.Count > _shown)
+            {
+                <div class="list-pagination"><span>Showing @_shown of @visibleTasks.Count tasks</span><button class="button secondary" @onclick="() => _shown += 25">Show more tasks</button></div>
+            }
         }
     </section>
     <div class="tip-card"><span class="tip-symbol" aria-hidden="true">✦</span><div><strong>Small steps add up.</strong><p>Give each task a realistic time estimate. Clear deadlines make your next step easier to choose.</p></div><span class="tip-tag">STUDY NOTE</span></div>
@@ -57,6 +61,7 @@ else
     private bool _loading = true, _busy;
     private string? _error, _message;
     private StudyTask? _deleting;
+    private int _shown = 25;
     private DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
     private IReadOnlyList<StudyTask> VisibleTasks => TaskQuery.Apply(Workspace.Tasks, Workspace.Search, Workspace.SubjectFilter, Workspace.CompletionFilter, Workspace.Sort, Today);
 

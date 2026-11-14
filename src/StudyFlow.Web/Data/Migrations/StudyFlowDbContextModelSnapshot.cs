@@ -17,6 +17,24 @@ namespace StudyFlow.Web.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.34");
 
+            modelBuilder.Entity("StudyFlow.Web.Data.AvailabilityEntity", b =>
+                {
+                    b.Property<int>("Day")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Minutes")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Day");
+
+                    b.ToTable("Availability", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Availability_Day", "Day BETWEEN 0 AND 6");
+
+                            t.HasCheckConstraint("CK_Availability_Minutes", "Minutes BETWEEN 0 AND 720");
+                        });
+                });
+
             modelBuilder.Entity("StudyFlow.Web.Data.StudyTaskEntity", b =>
                 {
                     b.Property<int>("Id")

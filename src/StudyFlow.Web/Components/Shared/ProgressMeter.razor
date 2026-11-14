@@ -1,0 +1,8 @@
+<progress class="progress-meter" value="@Math.Clamp(Value, 0, Limit)" max="@Limit" aria-label="@Label"></progress>
+
+@code {
+    [Parameter] public double Value { get; set; }
+    [Parameter] public double Max { get; set; }
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    private double Limit => Math.Max(1, Max);
+}

@@ -1,4 +1,4 @@
 {
-  "files.exclude": { "**/bin": true, "**/obj": true, "**/App_Data": true },
+  "files.exclude": { "**/bin": true, "**/obj": true, "**/App_Data": true, "artifacts": true, "node_modules": true, "TestResults": true },
   "editor.formatOnSave": true
 }
