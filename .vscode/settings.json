@@ -1,0 +1,4 @@
+{
+  "files.exclude": { "**/bin": true, "**/obj": true, "**/App_Data": true },
+  "editor.formatOnSave": true
+}

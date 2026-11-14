@@ -1,0 +1,98 @@
+@page "/"
+@page "/tasks"
+@inject WorkspaceState Workspace
+@inject TaskStore Store
+@inject ILogger<Tasks> Logger
+
+<PageTitle>My tasks · StudyFlow</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">MAKE SPACE FOR WHAT MATTERS</div><h1>My tasks<span class="heading-dot">.</span></h1><p>A clear view of your coursework, one deadline at a time.</p></div><a href="/tasks/new" class="button primary"><span aria-hidden="true">+</span> New task</a></div>
+<Notice Message="@_error" Kind="error" /><Notice Message="@_message" />
+@if (_loading)
+{
+    <div class="loading-panel" role="status">Opening your workspace…</div>
+}
+else
+{
+    var visibleTasks = VisibleTasks;
+    <section class="summary-strip" aria-label="Task overview">
+        <div class="summary-item"><span class="summary-icon green" aria-hidden="true">▤</span><div><span>Open tasks</span><strong>@Workspace.Tasks.Count(t => !t.IsCompleted)</strong></div></div>
+        <div class="summary-item"><span class="summary-icon orange" aria-hidden="true">◷</span><div><span>Overdue</span><strong>@Workspace.Tasks.Count(t => !t.IsCompleted && t.DueDate < Today)</strong></div></div>
+        <div class="summary-item"><span class="summary-icon lilac" aria-hidden="true">✓</span><div><span>Completed</span><strong>@Workspace.Tasks.Count(t => t.IsCompleted)</strong></div></div>
+    </section>
+    <section class="task-section" aria-label="Your tasks">
+        <div class="section-heading"><h2>Your coursework <span>@Workspace.Tasks.Count</span></h2><button class="text-button" disabled="@_busy" @onclick="Refresh">Refresh</button></div>
+        <div class="filter-bar">
+            <div class="search-field"><label class="sr-only" for="task-search">Search tasks</label><span aria-hidden="true">⌕</span><input id="task-search" type="search" placeholder="Search tasks or notes…" @bind="Workspace.Search" @bind:event="oninput" /></div>
+            <div><label class="sr-only" for="subject-filter">Filter by subject</label><select id="subject-filter" @bind="Workspace.SubjectFilter"><option value="">All subjects</option>@foreach (var subject in Workspace.Subjects) { <option value="@subject.Id">@subject.Name</option> }</select></div>
+            <div><label class="sr-only" for="task-sort">Sort tasks</label><select id="task-sort" @bind="Workspace.Sort"><option value="@TaskSort.DueDate">Deadline first</option><option value="@TaskSort.Priority">Priority first</option><option value="@TaskSort.Title">Title A–Z</option></select></div>
+        </div>
+        <div class="status-tabs" role="group" aria-label="Filter by status">
+            @foreach (var status in Enum.GetValues<CompletionFilter>())
+            {
+                <button class="@(Workspace.CompletionFilter == status ? "selected" : "")" aria-pressed="@(Workspace.CompletionFilter == status)" @onclick="() => Workspace.CompletionFilter = status">@status</button>
+            }
+            <span class="results-label">@visibleTasks.Count result@(visibleTasks.Count == 1 ? "" : "s")</span>
+        </div>
+        @if (_deleting is not null)
+        {
+            <div class="confirm-panel" role="alert"><div><strong>Delete “@_deleting.Title”?</strong><p>This removes the task from your workspace.</p></div><button class="button secondary" disabled="@_busy" @onclick="() => _deleting = null">Keep task</button><button class="button danger" disabled="@_busy" @onclick="DeleteTask">Delete task</button></div>
+        }
+        @if (Workspace.Tasks.Count == 0)
+        {
+            <div class="empty-state"><span class="empty-illustration" aria-hidden="true">✓</span><h3>Your next step starts here.</h3><p>Add a subject and your first task, or explore a sample semester.</p><div class="empty-actions"><a class="button primary" href="/tasks/new">Create your first task</a><button class="button secondary" disabled="@_busy" @onclick="LoadSamples">Try sample tasks</button></div></div>
+        }
+        else if (visibleTasks.Count == 0)
+        {
+            <div class="empty-state compact"><h3>No tasks match these filters.</h3><p>Try another search or show all your coursework.</p><button class="button secondary" @onclick="Workspace.ResetFilters">Clear filters</button></div>
+        }
+        else
+        {
+            <div class="task-list">@foreach (var task in visibleTasks) { <TaskCard @key="task.Id" Item="task" Subject="Workspace.Subjects.FirstOrDefault(s => s.Id == task.SubjectId)" Busy="_busy" OnToggle="ToggleTask" OnDelete="SelectDelete" /> }</div>
+        }
+    </section>
+    <div class="tip-card"><span class="tip-symbol" aria-hidden="true">✦</span><div><strong>Small steps add up.</strong><p>Give each task a realistic time estimate. Clear deadlines make your next step easier to choose.</p></div><span class="tip-tag">STUDY NOTE</span></div>
+}
+
+@code {
+    private bool _loading = true, _busy;
+    private string? _error, _message;
+    private StudyTask? _deleting;
+    private DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+    private IReadOnlyList<StudyTask> VisibleTasks => TaskQuery.Apply(Workspace.Tasks, Workspace.Search, Workspace.SubjectFilter, Workspace.CompletionFilter, Workspace.Sort, Today);
+
+    protected override async Task OnInitializedAsync() { await Refresh(); _loading = false; }
+    private async Task Refresh() => await Run(async () => await Workspace.RefreshAsync());
+    private void SelectDelete(StudyTask task) { _deleting = task; _message = null; }
+    private async Task ToggleTask(StudyTask task) => await Run(async () =>
+    {
+        var result = await Store.SetCompletedAsync(task.Id, !task.IsCompleted);
+        if (!result.IsSuccess) { _error = result.Error; return; }
+        await Workspace.RefreshAsync();
+        _message = task.IsCompleted ? "Task reopened." : "Task completed. Nice work!";
+    });
+    private async Task DeleteTask() => await Run(async () =>
+    {
+        if (_deleting is null) return;
+        var result = await Store.DeleteTaskAsync(_deleting.Id);
+        if (!result.IsSuccess) { _error = result.Error; return; }
+        _deleting = null;
+        await Workspace.RefreshAsync();
+        _message = "Task deleted.";
+    });
+    private async Task LoadSamples() => await Run(async () =>
+    {
+        var result = await Store.AddSampleTasksAsync(Today);
+        if (!result.IsSuccess) { _error = result.Error; return; }
+        Workspace.ResetFilters();
+        await Workspace.RefreshAsync();
+        _message = "Sample semester added. You can edit or delete any sample task.";
+    });
+    private async Task Run(Func<Task> action)
+    {
+        if (_busy) return;
+        _busy = true; _error = null; _message = null;
+        try { await action(); }
+        catch (Exception ex) { Logger.LogError(ex, "Task operation failed"); _error = "We couldn't save or load your tasks. Try again in a moment."; }
+        finally { _busy = false; }
+    }
+}

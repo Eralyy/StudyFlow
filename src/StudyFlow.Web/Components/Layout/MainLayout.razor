@@ -1,0 +1,22 @@
+@inherits LayoutComponentBase
+
+<a class="skip-link" href="#main-content">Skip to content</a>
+<div class="app-shell">
+    <aside class="sidebar">
+        <a class="brand" href="/" aria-label="StudyFlow home"><span class="brand-mark" aria-hidden="true">s<span>f</span></span>StudyFlow<span class="brand-dot">.</span></a>
+        <div class="workspace-label"><span class="online-dot"></span> My study workspace</div>
+        <nav aria-label="Main navigation">
+            <div class="nav-caption">WORKSPACE</div>
+            <NavLink href="/" Match="NavLinkMatch.All"><span aria-hidden="true">▤</span> My tasks</NavLink>
+            <NavLink href="/subjects"><span aria-hidden="true">▦</span> Subjects</NavLink>
+        </nav>
+        <div class="sidebar-note"><span class="note-line"></span><strong>A little progress,<br />every day.</strong><p>Give your deadlines a place.<br />Make room for your next step.</p></div>
+        <div class="workspace-owner"><span class="avatar">S</span><div><strong>Study workspace</strong><small>Saved on this device</small></div></div>
+    </aside>
+    <main id="main-content" tabindex="-1">
+        <div class="topbar"><span>Workspace <span class="breadcrumb-separator">/</span> <strong>Your semester</strong></span><span class="local-indicator"><span class="online-dot"></span> Local workspace</span></div>
+        <div class="page-content">@Body</div>
+        <footer>StudyFlow <span>One task closer.</span></footer>
+    </main>
+</div>
+<div id="blazor-error-ui" role="alert">Connection interrupted. Your saved work is safe. <a href="" class="reload">Reload the page</a><button class="dismiss" aria-label="Dismiss connection warning">×</button></div>

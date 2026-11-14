@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "StudyFlow: run",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "src/StudyFlow.Web"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "StudyFlow: build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "StudyFlow.sln"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "StudyFlow: test",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "StudyFlow.sln"],
+      "group": "test",
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

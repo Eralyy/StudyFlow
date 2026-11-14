@@ -1,0 +1,43 @@
+@inject IJSRuntime Js
+<NavigationLock ConfirmExternalNavigation="@(_editContext.IsModified() || Busy)" OnBeforeInternalNavigation="BeforeNavigation" />
+<EditForm EditContext="_editContext" OnValidSubmit="OnSave" FormName="task-editor">
+    <DataAnnotationsValidator />
+    <fieldset disabled="@Busy">
+        <div class="form-field"><label for="task-title">Task title <span>*</span></label><InputText id="task-title" @bind-Value="Model.Title" maxlength="120" placeholder="e.g. Finish the C# assignment" /><ValidationMessage For="() => Model.Title" /></div>
+        <div class="form-grid">
+            <div class="form-field"><label for="task-subject">Subject <span>*</span></label><InputSelect id="task-subject" @bind-Value="Model.SubjectId"><option value="0">Choose a subject</option>@foreach (var subject in Subjects) { <option value="@subject.Id">@subject.Name</option> }</InputSelect><ValidationMessage For="() => Model.SubjectId" /></div>
+            <div class="form-field"><label for="task-date">Deadline <span>*</span></label><InputDate id="task-date" @bind-Value="Model.DueDate" /><ValidationMessage For="() => Model.DueDate" /></div>
+            <div class="form-field"><label for="task-minutes">Estimated time (minutes) <span>*</span></label><InputNumber id="task-minutes" @bind-Value="Model.EstimatedMinutes" min="15" max="1440" /><ValidationMessage For="() => Model.EstimatedMinutes" /><small>15–1440 minutes. Your plan will use this estimate.</small></div>
+            <div class="form-field"><label for="task-priority">Priority</label><InputSelect id="task-priority" @bind-Value="Model.Priority">@foreach (var priority in Enum.GetValues<TaskPriority>()) { <option value="@priority">@priority</option> }</InputSelect></div>
+        </div>
+        <div class="form-field"><label for="task-notes">Notes <span class="optional">optional</span></label><InputTextArea id="task-notes" @bind-Value="Model.Notes" maxlength="1000" rows="4" placeholder="What do you need to get done?" /><ValidationMessage For="() => Model.Notes" /></div>
+        <div class="form-footer"><a class="button secondary" href="/">Cancel</a><button class="button primary" type="submit">@(Busy ? "Saving…" : "Save task")</button></div>
+    </fieldset>
+</EditForm>
+@code {
+    [Parameter, EditorRequired] public TaskFormModel Model { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<Subject> Subjects { get; set; } = [];
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnSave { get; set; }
+    private EditContext _editContext = default!;
+    private TaskFormModel? _previousModel;
+    private bool _saved;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Model, _previousModel)) return;
+        _previousModel = Model;
+        _editContext = new(Model);
+        _saved = false;
+    }
+
+    public void MarkSaved() { _editContext.MarkAsUnmodified(); _saved = true; }
+
+    private async Task BeforeNavigation(LocationChangingContext context)
+    {
+        if (_saved) return;
+        if (Busy) { context.PreventNavigation(); return; }
+        if (_editContext.IsModified() && !await Js.InvokeAsync<bool>("confirm", "Discard your unsaved task changes?"))
+            context.PreventNavigation();
+    }
+}

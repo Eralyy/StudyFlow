@@ -1,0 +1,25 @@
+﻿@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Something went wrong · StudyFlow</PageTitle>
+
+<div class="empty-state">
+    <h1>We couldn't open this page.</h1>
+    <p>Please try again. If you were saving a change, check your task list before repeating it.</p>
+    <a class="button primary" href="/">Back to my tasks</a>
+    @if (ShowRequestId)
+    {
+        <p>Help reference: <code>@RequestId</code></p>
+    }
+</div>
+
+@code{
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

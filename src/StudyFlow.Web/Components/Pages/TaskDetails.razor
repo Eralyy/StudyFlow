@@ -1,0 +1,60 @@
+@page "/tasks/new"
+@page "/tasks/{Id:int}/edit"
+@inject TaskStore Store
+@inject WorkspaceState Workspace
+@inject NavigationManager Navigation
+@inject ILogger<TaskDetails> Logger
+
+<PageTitle>@(Id.HasValue ? "Edit task" : "New task") · StudyFlow</PageTitle>
+<a class="back-link" href="/">← Back to tasks</a>
+<div class="page-heading"><div><div class="eyebrow">ONE CLEAR NEXT STEP</div><h1>@(Id.HasValue ? "Edit task" : "New task")<span class="heading-dot">.</span></h1><p>Set a deadline, estimate your time, and give your task a home.</p></div></div>
+<Notice Message="@_error" Kind="error" />
+@if (_loading) { <div class="loading-panel" role="status">Loading task…</div> }
+else if (_notFound) { <div class="empty-state"><h2>This task is no longer here.</h2><a class="button primary" href="/">Back to tasks</a></div> }
+else if (Workspace.Subjects.Count == 0)
+{
+    <div class="empty-state"><span class="empty-illustration" aria-hidden="true">▦</span><h2>Start with a subject.</h2><p>Subjects keep your coursework organised. Add one, then create your first task.</p><a class="button primary" href="/subjects">Add a subject</a></div>
+}
+else
+{
+    <div class="editor-layout"><section class="panel editor-panel"><TaskEditor @ref="_editor" @key="_model" Model="_model" Subjects="Workspace.Subjects" Busy="_busy" OnSave="Save" /></section><aside class="editor-help"><div class="eyebrow">A GOOD TASK IS SPECIFIC</div><h2>Make it doable.</h2><p>“Complete exercises 1–3” is easier to start than “Study everything”.</p><hr /><strong>Estimate the effort</strong><p>Include time to check your work. You can update the estimate later.</p><strong>Keep the real deadline</strong><p>Past deadlines are allowed. Unfinished tasks will be marked overdue.</p></aside></div>
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    private TaskFormModel _model = new();
+    private TaskEditor? _editor;
+    private bool _loading = true, _busy, _notFound;
+    private string? _error;
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true; _notFound = false; _error = null;
+        try
+        {
+            await Workspace.RefreshAsync();
+            var task = Id.HasValue ? Workspace.Tasks.FirstOrDefault(t => t.Id == Id.Value) : null;
+            _notFound = Id.HasValue && task is null;
+            _model = task is null ? new TaskFormModel() : TaskFormModel.FromTask(task);
+            if (!Id.HasValue && Workspace.Subjects.Count == 1) _model.SubjectId = Workspace.Subjects[0].Id;
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Could not load task editor"); _error = "We couldn't load this task. Please reload the page."; _notFound = true; }
+        finally { _loading = false; }
+    }
+    private async Task Save()
+    {
+        if (_busy) return;
+        _busy = true; _error = null;
+        try
+        {
+            var result = await Store.SaveTaskAsync(Id, _model.ToInput());
+            if (!result.IsSuccess) { _error = result.Error; return; }
+            Id = result.Value!.Id;
+            _editor?.MarkSaved();
+            Workspace.ResetFilters();
+            _busy = false;
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Could not save task"); _error = "The task could not be saved. Your form is still here; please try again."; }
+        finally { _busy = false; }
+    }
+}

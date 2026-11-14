@@ -1,0 +1,21 @@
+<article class="task-card @(Item.IsCompleted ? "is-complete" : "")" data-task-id="@Item.Id">
+    <button class="complete-toggle" type="button" disabled="@Busy" @onclick="() => OnToggle.InvokeAsync(Item)" aria-label="@(Item.IsCompleted ? $"Reopen {Item.Title}" : $"Complete {Item.Title}")" aria-pressed="@Item.IsCompleted">
+        @if (Item.IsCompleted) { <span aria-hidden="true">✓</span> }
+    </button>
+    <div class="task-body">
+        <div class="task-topline"><span class="subject-chip"><span style="background:@Subject?.Colour" class="subject-dot"></span>@Subject?.Name</span><span class="priority @Item.Priority.ToString().ToLowerInvariant()">@Item.Priority priority</span></div>
+        <h2><a href="@($"/tasks/{Item.Id}/edit")">@Item.Title</a></h2>
+        @if (!string.IsNullOrWhiteSpace(Item.Notes)) { <p class="task-notes">@Item.Notes</p> }
+        <div class="task-meta"><span class="@(IsOverdue ? "overdue" : "")">@(IsOverdue ? "Overdue · " : "Due ")@Item.DueDate.ToString("d MMM yyyy", CultureInfo.InvariantCulture)</span><span class="meta-dot">·</span><span>@Duration(Item.EstimatedMinutes)</span>@if (Item.IsCompleted) { <span class="completed-label">Completed</span> }</div>
+    </div>
+    <div class="task-actions"><a class="text-button" href="@($"/tasks/{Item.Id}/edit")" aria-label="@($"Edit {Item.Title}")">Edit</a><button class="text-button muted" disabled="@Busy" @onclick="() => OnDelete.InvokeAsync(Item)" aria-label="@($"Delete {Item.Title}")">Delete</button></div>
+</article>
+@code {
+    [Parameter, EditorRequired] public StudyTask Item { get; set; } = default!;
+    [Parameter] public Subject? Subject { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<StudyTask> OnToggle { get; set; }
+    [Parameter] public EventCallback<StudyTask> OnDelete { get; set; }
+    private bool IsOverdue => !Item.IsCompleted && Item.DueDate < DateOnly.FromDateTime(DateTime.Today);
+    private static string Duration(int minutes) => minutes < 60 ? $"{minutes} min" : minutes % 60 == 0 ? $"{minutes / 60}h" : $"{minutes / 60}h {minutes % 60}m";
+}

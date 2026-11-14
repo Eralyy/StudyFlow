@@ -1,0 +1,15 @@
+{
+  "name": "studyflow-browser-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser checks for StudyFlow task and subject management",
+  "scripts": {
+    "test:e2e": "dotnet build StudyFlow.sln --nologo && node --test --test-concurrency=1 tests/e2e/studyflow.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

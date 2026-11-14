@@ -1,0 +1,96 @@
+@page "/subjects"
+@inject TaskStore Store
+@inject WorkspaceState Workspace
+@inject ILogger<Subjects> Logger
+@inject IJSRuntime Js
+
+<PageTitle>Subjects · StudyFlow</PageTitle>
+@if (_context is not null) { <NavigationLock ConfirmExternalNavigation="@(_context.IsModified() || _busy)" OnBeforeInternalNavigation="BeforeNavigation" /> }
+<div class="page-heading"><div><div class="eyebrow">A PLACE FOR EVERY TASK</div><h1>Subjects<span class="heading-dot">.</span></h1><p>Keep your semester organised, from the first lecture to the final deadline.</p></div></div>
+<Notice Message="@_error" Kind="error" /><Notice Message="@_message" />
+@if (_loading) { <div class="loading-panel" role="status">Loading subjects…</div> }
+else
+{
+    <div class="subjects-layout">
+        <section aria-label="Subject list">
+            <div class="section-heading"><h2>Your subjects <span>@Workspace.Subjects.Count</span></h2></div>
+            @if (_deleting is not null)
+            {
+                <div class="confirm-panel" role="alert"><div><strong>Delete “@_deleting.Name”?</strong><p>A subject can only be deleted when it has no tasks.</p></div><button class="button secondary" disabled="@_busy" @onclick="() => _deleting = null">Keep subject</button><button class="button danger" disabled="@_busy" @onclick="Delete">Delete subject</button></div>
+            }
+            @if (Workspace.Subjects.Count == 0)
+            {
+                <div class="empty-state compact"><span class="empty-illustration" aria-hidden="true">▦</span><h3>Build your semester.</h3><p>Add your first subject using the form.</p></div>
+            }
+            else
+            {
+                <div class="subject-list">@foreach (var subject in Workspace.Subjects)
+                {
+                    int count = Workspace.Tasks.Count(t => t.SubjectId == subject.Id);
+                    <article class="subject-card" @key="subject.Id"><span class="subject-avatar" style="background:@subject.Colour">@StringInfo.GetNextTextElement(subject.Name).ToUpperInvariant()</span><div class="subject-info"><h2>@subject.Name</h2><p>@count task@(count == 1 ? "" : "s")</p></div><div class="subject-actions"><button class="text-button" disabled="@_busy" @onclick="() => Edit(subject)" aria-label="@($"Edit {subject.Name}")">Edit</button><button class="text-button muted" disabled="@_busy" @onclick="() => _deleting = subject" aria-label="@($"Delete {subject.Name}")">Delete</button></div></article>
+                }</div>
+            }
+            <p class="section-footnote">Your tasks stay linked to their subject, even when you rename it.</p>
+        </section>
+        <section class="panel subject-editor" aria-label="Subject editor">
+            <div class="eyebrow">YOUR SEMESTER</div><h2>@(_editId.HasValue ? "Edit subject" : "Add a subject")</h2><p>Give it a name and a colour.</p>
+            <EditForm EditContext="_context" OnValidSubmit="Save" FormName="subject-editor" @key="_model">
+                <DataAnnotationsValidator /><fieldset disabled="@_busy">
+                    <div class="form-field"><label for="subject-name">Subject name <span>*</span></label><InputText id="subject-name" @bind-Value="_model.Name" maxlength="60" placeholder="e.g. Functional Programming" /><ValidationMessage For="() => _model.Name" /></div>
+                    <div class="form-field"><label for="subject-colour">Subject colour</label><div class="colour-row"><InputText id="subject-colour" type="color" @bind-Value="_model.Colour" /><span>@_model.Colour</span></div><ValidationMessage For="() => _model.Colour" /></div>
+                    <div class="form-footer">@if (_editId.HasValue) { <button type="button" class="button secondary" @onclick="Reset">Cancel</button> }<button class="button primary" type="submit">@(_busy ? "Saving…" : _editId.HasValue ? "Save subject" : "Add subject")</button></div>
+                </fieldset>
+            </EditForm>
+        </section>
+    </div>
+}
+
+@code {
+    private SubjectFormModel _model = new();
+    private EditContext _context = default!;
+    private int? _editId;
+    private Subject? _deleting;
+    private bool _loading = true, _busy;
+    private string? _error, _message;
+    protected override async Task OnInitializedAsync() { _context = new(_model); await Run(async () => await Workspace.RefreshAsync()); _loading = false; }
+    private async Task Edit(Subject subject)
+    {
+        if (_context.IsModified() && !await Js.InvokeAsync<bool>("confirm", "Discard your unsaved subject changes?")) return;
+        _editId = subject.Id;
+        _model = new() { Name = subject.Name, Colour = subject.Colour };
+        _context = new(_model);
+        _error = null; _message = null;
+    }
+    private void Reset() { _model = new(); _context = new(_model); _editId = null; }
+    private async Task BeforeNavigation(LocationChangingContext context)
+    {
+        if (_busy) { context.PreventNavigation(); return; }
+        if (_context.IsModified() && !await Js.InvokeAsync<bool>("confirm", "Discard your unsaved subject changes?")) context.PreventNavigation();
+    }
+    private async Task Save() => await Run(async () =>
+    {
+        var result = await Store.SaveSubjectAsync(_editId, new SubjectInput(_model.Name, _model.Colour));
+        if (!result.IsSuccess) { _error = result.Error; return; }
+        _message = _editId.HasValue ? "Subject updated." : "Subject added. You can now create a task for it.";
+        Reset();
+        await Workspace.RefreshAsync();
+    });
+    private async Task Delete() => await Run(async () =>
+    {
+        if (_deleting is null) return;
+        var result = await Store.DeleteSubjectAsync(_deleting.Id);
+        if (!result.IsSuccess) { _error = result.Error; _deleting = null; return; }
+        if (_editId == _deleting.Id) Reset();
+        _deleting = null;
+        await Workspace.RefreshAsync();
+        _message = "Subject deleted.";
+    });
+    private async Task Run(Func<Task> action)
+    {
+        if (_busy) return;
+        _busy = true; _error = null; _message = null;
+        try { await action(); }
+        catch (Exception ex) { Logger.LogError(ex, "Subject operation failed"); _error = "We couldn't save or load your subjects. Please try again."; }
+        finally { _busy = false; }
+    }
+}
