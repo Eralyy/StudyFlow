@@ -282,6 +282,9 @@ test('unsaved edits require confirmation and pages fit a narrow screen', { timeo
   await taskCount(0);
   await openSubjects();
   await page.getByRole('button', { name: 'Edit Programming', exact: true }).click();
+  // Blazor replaces the keyed form after the server handles Edit.
+  await page.getByRole('heading', { name: 'Edit subject', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('#subject-name')?.value === 'Programming');
   const originalColour = await page.locator('#subject-colour').inputValue();
   await page.locator('#subject-colour').evaluate(input => {
     input.value = '#123456';
@@ -295,6 +298,8 @@ test('unsaved edits require confirmation and pages fit a narrow screen', { timeo
   await page.getByRole('heading', { name: /^My tasks/ }).waitFor();
   await openSubjects();
   await page.getByRole('button', { name: 'Edit Programming', exact: true }).click();
+  await page.getByRole('heading', { name: 'Edit subject', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('#subject-name')?.value === 'Programming');
   assert.equal(await page.locator('#subject-colour').inputValue(), originalColour);
   await openTasks();
   await addSamples();
